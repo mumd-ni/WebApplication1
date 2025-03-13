@@ -19,7 +19,7 @@ namespace WebApplication1.Models
             [Required]
             public DateTime AppointmentDate { get; set; }
 
-            public string Status { get; set; } = "Pending"; // يمكن أن يكون Confirmed, Cancelled, etc.
+            public string Status { get; set; } = "Pending"; 
         
 
     }
