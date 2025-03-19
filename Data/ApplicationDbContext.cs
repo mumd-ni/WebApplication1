@@ -3,9 +3,9 @@ using Microsoft.EntityFrameworkCore;
 using System.Reflection.Emit;
 using WebApplication1.Models;
 
-public class AppDbContext : DbContext
+public class ApplicationDbContext : DbContext
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options)
     {
        
     }
@@ -36,17 +36,12 @@ public class AppDbContext : DbContext
                 .WithMany(u => u.PatientFeedbacks)
                 .HasForeignKey(f => f.PatientId)
                 .OnDelete(DeleteBehavior.Restrict); // منع الحذف المتتالي
-        // تهيئة علاقة PasswordResetToken مع User
-        modelBuilder.Entity<PasswordResetToken>()
-            .HasOne(prt => prt.User)
-            .WithMany()
-            .HasForeignKey(prt => prt.UserId)
-            .OnDelete(DeleteBehavior.Cascade); // حذف الرموز إذا حُذف المستخدم
 
     }
-    public DbSet<User> Users { get; set; } // جدول المستخدمين
-    public DbSet<EmailVerification> EmailVerifications { get; set; } // جدول أكواد التحقق
+    public DbSet<User> Users { get; set; } 
     public DbSet<Appointment> Appointments { set; get; }
     public DbSet<Feedback> Feedbacks { get; set; }
-    public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
+    public DbSet<PasswordResetCode> PasswordResetCodes { get; set; }
+
+
 }

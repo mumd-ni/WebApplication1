@@ -1,133 +1,132 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using System.Linq;
-using System;
-using System.Threading.Tasks;
-using System.Net.Mail;
-using System.Net;
-using System.Text.RegularExpressions;
-using BCrypt.Net;
-using Microsoft.Extensions.Configuration;
-using WebApplication1.Services;
-using NETCore.MailKit.Core;
-using Microsoft.EntityFrameworkCore;
-using WebApplication1.Dtos;
-using WebApplication1.Services;
 using WebApplication1.Models;
-using IEmailService = NETCore.MailKit.Core.IEmailService;
+using WebApplication1.Services.AuthServices;
+using System.Text;
 
-[Route("api/auth")]
-[ApiController]
-public class AuthController : ControllerBase
+namespace PATHLY_API.Controllers
 {
-    private readonly AppDbContext _context;
-    private readonly ITokenService _tokenService;
-    private readonly IEmailService _emailService;
-
-    public AuthController(AppDbContext context, IEmailService emailService, ITokenService tokenService)
+    [Route("api/[controller]")]
+    [ApiController]
+    public class AuthController : ControllerBase
     {
-        _context = context;
-        _emailService = emailService;
-        _tokenService = tokenService;
-    }
-    //public AuthController(AppDbContext context)
-    //{
-    //   _context = context;
-    //}
+        private readonly IAuthService _authService;
+        public AuthController(IAuthService authService) => _authService = authService;
 
-    // تسجيل مستخدم جديد
-    [HttpPost("register")]
-    public async Task<IActionResult> Register([FromBody] RegisterRequest request)
-    {
-        if (_context.Users.Any(u => u.Email == request.Email))
-            return BadRequest(new { message = "البريد الإلكتروني مسجل بالفعل" });
-
-        var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.Password);
-
-        var newUser = new User
+        [HttpPost("register")]
+        public async Task<IActionResult> RegisterAsync([FromBody] RegisterModel model)
         {
-            Name = request.Name,
-            Email = request.Email,
-            PasswordHash = hashedPassword,
-            Role = request.Role,
-            IsEmailVerified = true
-        };
+            if (!ModelState.IsValid)
+                return ValidationProblem(ModelState);
 
-        _context.Users.Add(newUser);
-        await _context.SaveChangesAsync();
+            var result = await _authService.RegisterAsync(model);
 
-        return Ok(new { message = "تم تسجيل المستخدم بنجاح" });
-    }
 
-    // تسجيل الدخول
-    [HttpPost("login")]
-    public async Task<IActionResult> Login([FromBody] LoginRequest request)
-    {
-        var user = _context.Users.FirstOrDefault(u => u.Email == request.Email);
-        if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
-            return Unauthorized(new { message = "بيانات الدخول غير صحيحة" });
+            if (!result.IsAuthenticated)
+                return Unauthorized(result.Message);
 
-        return Ok(new { message = "تم تسجيل الدخول بنجاح", user = new { user.Id, user.Name, user.Email, user.Role } });
-    }
-    private string GenerateVerificationCode()
-    {
-        Random random = new Random();
-        return random.Next(100000, 999999).ToString(); // رمز مكون من 6 أرقام
-    }    
-    // إرسال كود إعادة تعيين كلمة المرور} 
-    [HttpPost("forgot-password")]
-    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordDto dto)
-    {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
-        if (user == null)
-            return NotFound("User with this email does not exist");
+            SetRefreshTokenInCookie(result.RefreshToken, result.RefreshTokenExpiration);
 
-        // توليد رمز التحقق
-        var resetCode = GenerateVerificationCode();
-        var resetToken = new PasswordResetToken
+            return Ok(new
+            {
+                result.IsAuthenticated,
+                result.Token,
+                result.ExpiresOn
+            });
+        }
+
+        [HttpPost("login")]
+        public async Task<IActionResult> GetTokenAsync([FromBody] LoginModel model)
         {
-            UserId = user.Id,
-            Token = resetCode,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(15) // صلاحية 15 دقيقة
-        };
+            var result = await _authService.LoginAsync(model);
 
-        // حفظ الرمز في قاعدة البيانات
-        _context.PasswordResetTokens.Add(resetToken);
-        await _context.SaveChangesAsync();
+            if (!result.IsAuthenticated)
+                return BadRequest(result.Message);
 
-        // إرسال الرمز عبر البريد الإلكتروني
-        await _emailService.SendAsync(
-            dto.Email,
-            "Reset Your Password",
-            $"Your password reset code is: {resetCode}. It expires in 15 minutes."
-        );
+            if (!string.IsNullOrEmpty(result.RefreshToken))
+                SetRefreshTokenInCookie(result.RefreshToken, result.RefreshTokenExpiration);
 
-        return Ok(new { Message = "Reset code sent to your email" });
-    }
+            return Ok(new
+            {
+                result.Token,
+                result.ExpiresOn
+            });
+        }
 
-    [HttpPost("reset-password")]
-    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
-    {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
-        if (user == null)
-            return NotFound("User with this email does not exist");
+        [HttpPost("refresh-token")]
+        public async Task<IActionResult> RefreshToken([FromBody] RefreshToken model = null)
+        {
+            var token = model?.Token ?? Request.Cookies["refresh-token"];
 
-        // التحقق من الرمز
-        var resetToken = await _context.PasswordResetTokens
-            .FirstOrDefaultAsync(t => t.UserId == user.Id && t.Token == dto.Token);
-        if (resetToken == null)
-            return BadRequest("Invalid reset code");
-        if (resetToken.ExpiresAt < DateTime.UtcNow)
-            return BadRequest("Reset code has expired");
+            if (string.IsNullOrEmpty(token))
+                return BadRequest("Token is required.");
 
-        // تحديث كلمة المرور
-        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
-        _context.Users.Update(user);
+            var result = await _authService.RefreshTokenAsync(token);
 
-        // حذف الرمز بعد الاستخدام
-        _context.PasswordResetTokens.Remove(resetToken);
-        await _context.SaveChangesAsync();
+            if (!result.IsAuthenticated)
+                return BadRequest(result.Message);
 
-        return Ok(new { Message = "Password reset successfully" });
+            SetRefreshTokenInCookie(result.RefreshToken, result.RefreshTokenExpiration);
 
+            return Ok(new
+            {
+                NewToken = result.RefreshToken,
+                NewTokenExpiration = result.RefreshTokenExpiration
+            });
+        }
+
+        [HttpPost("revoke-token")]
+        public async Task<IActionResult> RevokeToken([FromBody] RevokeToken model)
+        {
+            var token = model.Token ?? Request.Cookies["refresh-token"];
+
+            if (string.IsNullOrEmpty(token))
+                return BadRequest("Token is required!");
+
+            var result = await _authService.RevokeTokenAsync(token);
+
+            if (!result)
+                return BadRequest("Token is invalid!");
+
+            return Ok();
+        }
+
+        [HttpPost("forget-password")]
+        public async Task<IActionResult> SendResetCode([FromBody] ForgotPasswordModel model)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var result = await _authService.SendPasswordResetCodeAsync(model.Email);
+
+            if (result == "User not found.")
+                return NotFound(result);
+
+            return Ok(result);
+        }
+
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPasswordWithCode([FromBody] ResetPasswordModel model)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var result = await _authService.ResetPasswordWithCodeAsync(model.Email, model.Code, model.NewPassword, model.ConfirmPassword);
+
+            if (result == "User not found." || result == "Invalid or expired code." || result == "Failed to reset password." || result == "The new password and confirmation password do not match.")
+                return BadRequest(result);
+
+            return Ok(result);
+        }
+
+        private void SetRefreshTokenInCookie(string refreshToken, DateTime expires)
+        {
+            var cookieOptions = new CookieOptions
+            {
+                HttpOnly = true,
+                Expires = expires.ToLocalTime(),
+            };
+
+            Response.Cookies.Append("refresh-token", refreshToken, cookieOptions);
+        }
     }
 }

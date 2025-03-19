@@ -1,8 +1,10 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 namespace WebApplication1.Models
 {
     public class Feedback
     {
+        [Key, DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
 
         [Required]
@@ -22,5 +24,6 @@ namespace WebApplication1.Models
         public int Rating { get; set; } // التقييم من 1 إلى 5
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow; // تاريخ الإنشاء
+        public User User { get; set; }
     }
 }

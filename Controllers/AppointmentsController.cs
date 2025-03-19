@@ -13,17 +13,15 @@ namespace WebApplication1.Controllers
     [Authorize]
     public class AppointmentsController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        private readonly ApplicationDbContext _context;
 
-        public AppointmentsController(AppDbContext context)
-        {
-            _context = context;
-        }
+        public AppointmentsController(ApplicationDbContext context) => _context = context;
+
         [HttpGet("search-doctors")]
         public async Task<IActionResult> SearchDoctors(string name)
         {
             var doctors = await _context.Users
-                .Where(u => u.Role == "Doctor" && u.Name.Contains(name))
+                .Where(u => u.Role == "Doctor" && u.UserName.Contains(name))
                 .ToListAsync();
             return Ok(doctors);
         }
@@ -32,9 +30,7 @@ namespace WebApplication1.Controllers
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
-            {
                 throw new UnauthorizedAccessException("Unable to retrieve user ID from token.");
-            }
             return userId;
         }
          [Authorize(Roles = "Patient")]
@@ -76,7 +72,7 @@ namespace WebApplication1.Controllers
                 .Select(a => new
                 {
                     a.Id,
-                    PatientName = a.Patient.Name,
+                    PatientName = a.Patient.UserName,
                     a.AppointmentDate,
                     a.Status
                 })

@@ -11,9 +11,9 @@ using WebApplication1.Models;
 [Authorize(Roles = "Patient")] // يقتصر على المرضى فقط
 public class FeedbackController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    private readonly ApplicationDbContext _context;
 
-    public FeedbackController(AppDbContext context)
+    public FeedbackController(ApplicationDbContext context)
     {
         _context = context;
     }
@@ -67,7 +67,7 @@ public class FeedbackController : ControllerBase
             .Select(f => new
             {
                 f.Id,
-                PatientName = f.Patient.Name,
+                PatientName = f.User.UserName,
                 f.Comment,
                 f.Rating,
                 f.CreatedAt

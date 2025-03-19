@@ -9,6 +9,11 @@
  using Microsoft.IdentityModel.Tokens;
  using System.Text;
 using WebApplication1.Services;
+using WebApplication1.Services.AuthServices;
+using WebApplication1.Services.EmailService;
+using WebApplication1.Services.EmailServicses;
+using Microsoft.AspNetCore.Identity;
+using WebApplication1.JWT;
 
 namespace WebApplication1
 {
@@ -22,69 +27,67 @@ namespace WebApplication1
             // ✅ جلب إعدادات الاتصال من `appsettings.json`
             var configuration = builder.Configuration;
 
-            var connectionString = configuration.GetConnectionString("DefaultConnection");
-
-            // ✅ إضافة قاعدة البيانات (Entity Framework Core - SQL Server)
-            builder.Services.AddDbContext<AppDbContext>(options =>
-                options.UseSqlServer(connectionString));
-            builder.Services.AddScoped<ITokenService, TokenService>();
-            builder.Services.AddScoped<IEmailService, EmailService>(); // تسجيل EmailService
-            // ✅ تفعيل `Controllers`
-            builder.Services.AddControllers();
-
-            // ✅ تمكين CORS (للسماح للـ Flutter App بالاتصال)
-            builder.Services.AddCors(options =>
-            {
-                options.AddPolicy("AllowAll",
-                    builder => builder.AllowAnyOrigin()
-                                      .AllowAnyMethod()
-                                      .AllowAnyHeader());
-            });
-
-            // ✅ تمكين المصادقة باستخدام `JWT` (اختياري)
-            builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-                .AddJwtBearer(options =>
-                {
-                    options.TokenValidationParameters = new TokenValidationParameters
-                    {
-                        ValidateIssuer = true,
-                        ValidateAudience = true,
-                        ValidateLifetime = true,
-                        ValidateIssuerSigningKey = true,
-                        ValidIssuer = "YourIssuer",
-                        ValidAudience = "YourAudience",
-                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("YourSuperSecretKey"))
-                    };
-                });
-
-            // ✅ إضافة `Swagger` لتوثيق API
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen();
 
+            builder.Services.Configure<jwt>(builder.Configuration.GetSection("JWT"));
+
+            builder.Services.AddControllers();
+            builder.Services.AddScoped<IAuthService, AuthService>();
+            builder.Services.AddScoped<IEmailService, EmailService>();
+
+
+            builder.Services.AddIdentity<User, IdentityRole<int>>(options =>
+            {
+                options.Tokens.PasswordResetTokenProvider = TokenOptions.DefaultProvider;
+            })
+                .AddEntityFrameworkStores<ApplicationDbContext>()
+                .AddDefaultTokenProviders();
+
+            builder.Services.AddDbContext<ApplicationDbContext>(options =>
+            {
+                options.UseSqlServer("Data Source=DESKTOP-21FM4O1\\MSSQLSERVER01;Database=MedicalAppDB;Integrated Security=True;");
+            });
+
+            builder.Services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            })
+                .AddJwtBearer(o =>
+                {
+                    o.RequireHttpsMetadata = false;
+                    o.SaveToken = false;
+                    o.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuerSigningKey = true,
+                        ValidateIssuer = true,
+                        ValidateAudience = true,
+                        ValidateLifetime = true,
+                        ValidIssuer = builder.Configuration["JWT:Issuer"],
+                        ValidAudience = builder.Configuration["JWT:Audience"],
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["JWT:Key"])),
+                        ClockSkew = TimeSpan.Zero
+
+
+                    };
+                });
+
+
+
             var app = builder.Build();
 
-            // ✅ استخدام `Swagger` في وضع التطوير
             if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();
-                app.UseSwaggerUI(options =>
-                 {
-                 options.SwaggerEndpoint("/swagger/v1/swagger.json", "API v1");
-                 });
+                app.UseSwaggerUI();
             }
 
-            // ✅ تفعيل CORS
-            app.UseCors("AllowAll");
 
-            // ✅ تفعيل المصادقة (إذا كنت تستخدم JWT)
+            app.UseHttpsRedirection();
             app.UseAuthentication();
             app.UseAuthorization();
-
-            // ✅ توجيه الطلبات إلى الـ API Controllers
-            //  app.MapControllers();
             app.MapControllers();
-
-            // ✅ تشغيل التطبيق
             app.Run();
 
         }
